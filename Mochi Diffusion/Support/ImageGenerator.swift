@@ -173,7 +173,6 @@ struct GenerationConfig: Sendable, Identifiable {
         await updateState(.loading)
         let config = MLModelConfiguration()
         config.computeUnits = computeUnit
-        await model.modifyInputSize(height: ImageController.shared.height, width: ImageController.shared.width)
         let modelresource = try GuernikaKit.load(at: model.url)
         
         if FileManager.default.fileExists(atPath: model.url.path() + "WuerstchenPrior.mlmodelc"){
@@ -210,8 +209,6 @@ struct GenerationConfig: Sendable, Identifiable {
         sdi.steps = config.pipelineConfig.stepCount
         sdi.guidanceScale = Double(config.pipelineConfig.guidanceScale)
         
-        try await config.model.hackVAE()
-
         for index in 0 ..< config.numberOfImages {
             await updateQueueProgress(QueueProgress(index: index, total: inputConfig.numberOfImages))
             generationStartTime = DispatchTime.now()

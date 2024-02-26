@@ -166,8 +166,32 @@ private func identifyControlNetType(_ url: URL) -> ControlType? {
 }
 
 extension SDModel {
-    func hackVAE() async throws {
-        let resourcePath = url.path()
+    public func resized(width: Int, height: Int) async throws -> SDModel?  {
+        if let currentWidth = inputSize?.width,
+           let currentHeight = inputSize?.height,
+           width == Int(currentWidth) && height == Int(currentHeight) {
+            return self
+        }
+        let modelSizeName = "\(name)_\(width)x\(height)"
+        let url = FileManager.default.temporaryDirectory.appending(path: modelSizeName)
+        let path = url.path()
+        if FileManager.default.fileExists(atPath: path) {
+            // TODO: throw error instead of returning optional
+            return SDModel(url: URL(filePath: path), name: name, controlNet: []) // TODO: controlnet
+        } else {
+            do {
+                try FileManager.default.copyItem(at: self.url, to: url)
+                try await hackVAE(path: path)
+                modifyInputSize(path: path, height: height, width: width)
+                return SDModel(url: URL(filePath: path), name: name, controlNet: []) // TODO: controlnet
+            } catch {
+                throw error
+            }
+        }
+    }
+
+    private func hackVAE(path: String) async throws {
+        let resourcePath = path + "/"
         if isXL{
             if FileManager.default.fileExists(atPath: resourcePath + "VAEDecoder.mlmodelc/model.mil.bak") {
                 let vaedecoderMIL = resourcePath + "VAEDecoder.mlmodelc/model.mil"
@@ -332,7 +356,8 @@ extension SDModel {
     }
 
 
-    func modifyInputSize(height: Int, width: Int) {
+    private func modifyInputSize(path: String, height: Int, width: Int) {
+        let url = URL(filePath: path)
         let encoderMetadataURL = url.appendingPathComponent("VAEEncoder.mlmodelc").appendingPathComponent("metadata.json")
         guard let jsonData = try? Data(contentsOf: encoderMetadataURL),
               var jsonArray = try? JSONSerialization.jsonObject(with: jsonData) as? [[String: Any]],
@@ -363,6 +388,4 @@ extension SDModel {
             print("Failed to update metadata.")
         }
     }
-
-
 }

@@ -325,8 +325,11 @@ final class ImageController: ObservableObject {
             let genConfig = generationQueue.removeFirst()
             self.currentGeneration = genConfig
             do {
+                guard let model = try await genConfig.model.resized(width: width, height: height) else {
+                    continue
+                }
                 try await ImageGenerator.shared.loadPipeline(
-                    model: genConfig.model,
+                    model: model,
                     controlNet: genConfig.controlNets,
                     computeUnit: genConfig.mlComputeUnit,
                     reduceMemory: self.reduceMemory
