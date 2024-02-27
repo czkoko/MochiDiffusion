@@ -61,8 +61,8 @@
 		D7B03F2029D42F9900DF89DD /* SDModelAttentionType.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7B03F1F29D42F9900DF89DD /* SDModelAttentionType.swift */; };
 		E45FA5822B7F7E4B009E90F0 /* GuernikaKit in Frameworks */ = {isa = PBXBuildFile; productRef = E45FA5812B7F7E4B009E90F0 /* GuernikaKit */; };
 		E4EC46322B890B6D00351E8C /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E4EC46312B890B6D00351E8C /* Sparkle */; };
-		E4F15B1D2B86720F00E1EC3C /* de-coremldata.bin in Resources */ = {isa = PBXBuildFile; fileRef = E4F15B1C2B86720F00E1EC3C /* de-coremldata.bin */; };
-		E4F15B1F2B8673DB00E1EC3C /* en-coremldata.bin in Resources */ = {isa = PBXBuildFile; fileRef = E4F15B1E2B8673DB00E1EC3C /* en-coremldata.bin */; };
+		E4F15B1D2B86720F00E1EC3C /* decoder-coremldata.bin in Resources */ = {isa = PBXBuildFile; fileRef = E4F15B1C2B86720F00E1EC3C /* decoder-coremldata.bin */; };
+		E4F15B1F2B8673DB00E1EC3C /* encoder-coremldata.bin in Resources */ = {isa = PBXBuildFile; fileRef = E4F15B1E2B8673DB00E1EC3C /* encoder-coremldata.bin */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -134,8 +134,8 @@
 		C1220FBF2AFB122F007E5055 /* ImageWellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageWellView.swift; sourceTree = "<group>"; };
 		C1ADEC2B2B16957800E142CA /* FolderMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderMonitor.swift; sourceTree = "<group>"; };
 		D7B03F1F29D42F9900DF89DD /* SDModelAttentionType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDModelAttentionType.swift; sourceTree = "<group>"; };
-		E4F15B1C2B86720F00E1EC3C /* de-coremldata.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = "de-coremldata.bin"; sourceTree = "<group>"; };
-		E4F15B1E2B8673DB00E1EC3C /* en-coremldata.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = "en-coremldata.bin"; sourceTree = "<group>"; };
+		E4F15B1C2B86720F00E1EC3C /* decoder-coremldata.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = "decoder-coremldata.bin"; sourceTree = "<group>"; };
+		E4F15B1E2B8673DB00E1EC3C /* encoder-coremldata.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = "encoder-coremldata.bin"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -279,8 +279,8 @@
 			isa = PBXGroup;
 			children = (
 				036BFC25294B9F7600D8AD04 /* Assets.xcassets */,
-				E4F15B1E2B8673DB00E1EC3C /* en-coremldata.bin */,
-				E4F15B1C2B86720F00E1EC3C /* de-coremldata.bin */,
+				E4F15B1E2B8673DB00E1EC3C /* encoder-coremldata.bin */,
+				E4F15B1C2B86720F00E1EC3C /* decoder-coremldata.bin */,
 				03FD2318295F74B6006EEEE2 /* RealESRGAN.mlmodel */,
 			);
 			path = Resources;
@@ -395,8 +395,8 @@
 				03F578642967CE9A003A815F /* Localizable.strings in Resources */,
 				0311C6BD2989E3EF0074BCAE /* Localizable.stringsdict in Resources */,
 				036BFC26294B9F7600D8AD04 /* Assets.xcassets in Resources */,
-				E4F15B1F2B8673DB00E1EC3C /* en-coremldata.bin in Resources */,
-				E4F15B1D2B86720F00E1EC3C /* de-coremldata.bin in Resources */,
+				E4F15B1F2B8673DB00E1EC3C /* encoder-coremldata.bin in Resources */,
+				E4F15B1D2B86720F00E1EC3C /* decoder-coremldata.bin in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -628,7 +628,7 @@
 				CURRENT_PROJECT_VERSION = 6.0;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Mochi Diffusion/Preview Content\"";
-				DEVELOPMENT_TEAM = "TCQ6328PP6";
+				DEVELOPMENT_TEAM = TCQ6328PP6;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -661,7 +661,7 @@
 				CURRENT_PROJECT_VERSION = 6.0;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Mochi Diffusion/Preview Content\"";
-				DEVELOPMENT_TEAM = "TCQ6328PP6";
+				DEVELOPMENT_TEAM = TCQ6328PP6;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;

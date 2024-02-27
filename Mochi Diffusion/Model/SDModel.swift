@@ -166,199 +166,157 @@ private func identifyControlNetType(_ url: URL) -> ControlType? {
 }
 
 extension SDModel {
-    public func resized(width: Int, height: Int) async throws -> SDModel?  {
+    public func resized(width: Int, height: Int) async -> SDModel?  {
         if let currentWidth = inputSize?.width,
            let currentHeight = inputSize?.height,
            width == Int(currentWidth) && height == Int(currentHeight) {
             return self
         }
         let modelSizeName = "\(name)_\(width)x\(height)"
-        let url = FileManager.default.temporaryDirectory.appending(path: modelSizeName)
-        let path = url.path()
-        if FileManager.default.fileExists(atPath: path) {
-            // TODO: throw error instead of returning optional
-            return SDModel(url: URL(filePath: path), name: name, controlNet: []) // TODO: controlnet
+        let newURL = FileManager.default.temporaryDirectory.appending(path: modelSizeName)
+        if FileManager.default.fileExists(atPath: newURL.path(percentEncoded: false)) {
+            return SDModel(url: newURL, name: name, controlNet: []) // TODO: variable size controlnet
         } else {
             do {
-                try FileManager.default.copyItem(at: self.url, to: url)
-                try await hackVAE(path: path)
-                modifyInputSize(path: path, height: height, width: width)
-                return SDModel(url: URL(filePath: path), name: name, controlNet: []) // TODO: controlnet
+                try FileManager.default.copyItem(at: self.url, to: newURL)
+
+                guard let decoderURL = Bundle.main.url(forResource: "decoder-coremldata", withExtension: "bin"),
+                      let encoderURL = Bundle.main.url(forResource: "encoder-coremldata", withExtension: "bin") else {
+                    return nil
+                }
+                try FileManager.default.removeItem(at: newURL.appending(components: "VAEEncoder.mlmodelc", "coremldata.bin"))
+                try FileManager.default.copyItem(at: encoderURL, to: newURL.appending(components: "VAEEncoder.mlmodelc", "coremldata.bin"))
+                try FileManager.default.removeItem(at: newURL.appending(components: "VAEDecoder.mlmodelc", "coremldata.bin"))
+                try FileManager.default.copyItem(at: decoderURL, to: newURL.appending(components: "VAEDecoder.mlmodelc", "coremldata.bin"))
+
+                let encoderMIL = newURL.appending(components: "VAEEncoder.mlmodelc", "model.mil")
+                let decoderMIL = newURL.appending(components: "VAEDecoder.mlmodelc", "model.mil")
+
+                if isXL {
+                    try await vaeEnSDXL(vaeMIL: encoderMIL, height: ImageController.shared.height, width: ImageController.shared.width)
+                    try await vaeDeSDXL(vaeMIL: decoderMIL, height: ImageController.shared.height, width: ImageController.shared.width)
+                } else {
+                    try await vaeEnSD(vaeMIL: encoderMIL, height: ImageController.shared.height, width: ImageController.shared.width)
+                    try await vaeDeSD(vaeMIL: decoderMIL, height: ImageController.shared.height, width: ImageController.shared.width)
+                }
+
+                modifyMetadataInputSize(url: newURL, height: height, width: width)
+                return SDModel(url: newURL, name: name, controlNet: []) // TODO: variable size controlnet
             } catch {
-                throw error
+                print("Error resizing model \(error)")
+                return nil
             }
         }
     }
 
-    private func hackVAE(path: String) async throws {
-        let resourcePath = path + "/"
-        if isXL{
-            if FileManager.default.fileExists(atPath: resourcePath + "VAEDecoder.mlmodelc/model.mil.bak") {
-                let vaedecoderMIL = resourcePath + "VAEDecoder.mlmodelc/model.mil"
-                try FileManager.default.removeItem(atPath: vaedecoderMIL)
-                try FileManager.default.copyItem(atPath: resourcePath + "VAEDecoder.mlmodelc/model.mil.bak", toPath: vaedecoderMIL)
-                await vaeDeSDXL(vaeMIL: vaedecoderMIL, height: ImageController.shared.height, width: ImageController.shared.width)
-            } else {
-                let vaedecoderMIL = resourcePath + "VAEDecoder.mlmodelc/model.mil"
-                try FileManager.default.copyItem(atPath: vaedecoderMIL, toPath: resourcePath + "VAEDecoder.mlmodelc/model.mil.bak")
-                try FileManager.default.removeItem(atPath: resourcePath + "VAEDecoder.mlmodelc/coremldata.bin")
-                try FileManager.default.copyItem(at: Bundle.main.url(forResource: "de-coremldata", withExtension: "bin")!, to: URL(fileURLWithPath: resourcePath + "VAEDecoder.mlmodelc/coremldata.bin"))
-                await vaeDeSDXL(vaeMIL: vaedecoderMIL, height: ImageController.shared.height, width: ImageController.shared.width)
-            }
-
-            if FileManager.default.fileExists(atPath: resourcePath + "VAEEncoder.mlmodelc/model.mil.bak") {
-                let vaeencoderMIL = resourcePath + "VAEEncoder.mlmodelc/model.mil"
-                try FileManager.default.removeItem(atPath: vaeencoderMIL)
-                try FileManager.default.copyItem(atPath: resourcePath + "VAEEncoder.mlmodelc/model.mil.bak", toPath: vaeencoderMIL)
-                await vaeEnSDXL(vaeMIL: vaeencoderMIL, height: ImageController.shared.height, width: ImageController.shared.width)
-            } else {
-                let vaeencoderMIL = resourcePath + "VAEEncoder.mlmodelc/model.mil"
-                try FileManager.default.copyItem(atPath: vaeencoderMIL, toPath: resourcePath + "VAEEncoder.mlmodelc/model.mil.bak")
-                try FileManager.default.removeItem(atPath: resourcePath + "VAEEncoder.mlmodelc/coremldata.bin")
-                try FileManager.default.copyItem(at: Bundle.main.url(forResource: "en-coremldata", withExtension: "bin")!, to: URL(fileURLWithPath: resourcePath + "VAEEncoder.mlmodelc/coremldata.bin"))
-                await vaeEnSDXL(vaeMIL: vaeencoderMIL, height: ImageController.shared.height, width: ImageController.shared.width)
-            }
-        } else {
-            if FileManager.default.fileExists(atPath: resourcePath + "VAEDecoder.mlmodelc/model.mil.bak") {
-                let vaedecoderMIL = resourcePath + "VAEDecoder.mlmodelc/model.mil"
-                try FileManager.default.removeItem(atPath: vaedecoderMIL)
-                try FileManager.default.copyItem(atPath: resourcePath + "VAEDecoder.mlmodelc/model.mil.bak", toPath: vaedecoderMIL)
-                await vaeDeSD(vaeMIL: vaedecoderMIL, height: ImageController.shared.height, width: ImageController.shared.width)
-            } else {
-                let vaedecoderMIL = resourcePath + "VAEDecoder.mlmodelc/model.mil"
-                try FileManager.default.copyItem(atPath: vaedecoderMIL, toPath: resourcePath + "VAEDecoder.mlmodelc/model.mil.bak")
-                try FileManager.default.removeItem(atPath: resourcePath + "VAEDecoder.mlmodelc/coremldata.bin")
-                try FileManager.default.copyItem(at: Bundle.main.url(forResource: "de-coremldata", withExtension: "bin")!, to: URL(fileURLWithPath: resourcePath + "VAEDecoder.mlmodelc/coremldata.bin"))
-                await vaeDeSD(vaeMIL: vaedecoderMIL, height: ImageController.shared.height, width: ImageController.shared.width)
-            }
-
-            if FileManager.default.fileExists(atPath: resourcePath + "VAEEncoder.mlmodelc/model.mil.bak") {
-                let vaeencoderMIL = resourcePath + "VAEEncoder.mlmodelc/model.mil"
-                try FileManager.default.removeItem(atPath: vaeencoderMIL)
-                try FileManager.default.copyItem(atPath: resourcePath + "VAEEncoder.mlmodelc/model.mil.bak", toPath: vaeencoderMIL)
-                await vaeEnSD(vaeMIL: vaeencoderMIL, height: ImageController.shared.height, width: ImageController.shared.width)
-            } else {
-                let vaeencoderMIL = resourcePath + "VAEEncoder.mlmodelc/model.mil"
-                try FileManager.default.copyItem(atPath: vaeencoderMIL, toPath: resourcePath + "VAEEncoder.mlmodelc/model.mil.bak")
-                try FileManager.default.removeItem(atPath: resourcePath + "VAEEncoder.mlmodelc/coremldata.bin")
-                try FileManager.default.copyItem(at: Bundle.main.url(forResource: "en-coremldata", withExtension: "bin")!, to: URL(fileURLWithPath: resourcePath + "VAEEncoder.mlmodelc/coremldata.bin"))
-                await vaeEnSD(vaeMIL: vaeencoderMIL, height: ImageController.shared.height, width: ImageController.shared.width)
-            }
-        }
+    private func vaeDeSDXL(vaeMIL: URL, height: Int, width: Int) throws {
+        var fileContent = try String(contentsOf: vaeMIL, encoding: .utf8)
+        fileContent = fileContent.replacingOccurrences(of: "[1, 4, 128, 128]", with: "[1, 4, \(height / 8), \(width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 128, 128]", with: "[1, 512, \(height / 8), \(width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 16, 128, 128]", with: "[1, 32, 16, \(height / 8), \(width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 16, 16384]", with: "[1, 32, 16, \(height / 8 * width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 16384]", with: "[1, 512, \(height / 8 * width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 16384, 512]", with: "[1, \(height / 8 * width / 8), 512]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 16384, 1, 512]", with: "[1, \(height / 8 * width / 8), 1, 512]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 1, 16384, 512]", with: "[1, 1, \(height / 8 * width / 8), 512]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 1, 16384, 16384]", with: "[1, 1, \(height / 8 * width / 8), \(height / 8 * width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 256, 256]", with: "[1, 512, \(height / 4), \(width / 4)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 16, 256, 256]", with: "[1, 32, 16, \(height / 4), \(width / 4)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 512, 512]", with: "[1, 512, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 16, 512, 512]", with: "[1, 32, 16, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 256, 512, 512]", with: "[1, 256, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 8, 512, 512]", with: "[1, 32, 8, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 256, 1024, 1024]", with: "[1, 256, \(height), \(width)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 8, 1024, 1024]", with: "[1, 32, 8, \(height), \(width)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 128, 1024, 1024]", with: "[1, 128, \(height), \(width)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 4, 1024, 1024]", with: "[1, 32, 4, \(height), \(width)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 3, 1024, 1024]", with: "[1, 3, \(height), \(width)]")
+        try fileContent.write(to: vaeMIL, atomically: false, encoding: .utf8)
     }
 
-    private func modifyMILFile(path: String, oldDimensions: String, newDimensions: String) {
-        do {
-            let fileContent = try String(contentsOf: URL(fileURLWithPath: path), encoding: .utf8)
-            let modifiedContent = fileContent.replacingOccurrences(of: oldDimensions, with: newDimensions)
-            try modifiedContent.write(to: URL(fileURLWithPath: path),atomically: false, encoding: .utf8)
-        } catch {
-            print("Error modifying MIL file: \(error)")
-        }
-    }
-    
-    private func vaeDeSDXL(vaeMIL: String, height: Int, width: Int) {
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 4, 128, 128]", newDimensions: "[1, 4, \(height / 8), \(width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 128, 128]", newDimensions: "[1, 512, \(height / 8), \(width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 16, 128, 128]", newDimensions: "[1, 32, 16, \(height / 8), \(width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 16, 16384]", newDimensions: "[1, 32, 16, \(height / 8 * width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 16384]", newDimensions: "[1, 512, \(height / 8 * width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 16384, 512]", newDimensions: "[1, \(height / 8 * width / 8), 512]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 16384, 1, 512]", newDimensions: "[1, \(height / 8 * width / 8), 1, 512]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 1, 16384, 512]", newDimensions: "[1, 1, \(height / 8 * width / 8), 512]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 1, 16384, 16384]", newDimensions: "[1, 1, \(height / 8 * width / 8), \(height / 8 * width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 256, 256]", newDimensions: "[1, 512, \(height / 4), \(width / 4)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 16, 256, 256]", newDimensions: "[1, 32, 16, \(height / 4), \(width / 4)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 512, 512]", newDimensions: "[1, 512, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 16, 512, 512]", newDimensions: "[1, 32, 16, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 256, 512, 512]", newDimensions: "[1, 256, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 8, 512, 512]", newDimensions: "[1, 32, 8, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 256, 1024, 1024]", newDimensions: "[1, 256, \(height), \(width)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 8, 1024, 1024]", newDimensions: "[1, 32, 8, \(height), \(width)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 128, 1024, 1024]", newDimensions: "[1, 128, \(height), \(width)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 4, 1024, 1024]", newDimensions: "[1, 32, 4, \(height), \(width)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 3, 1024, 1024]", newDimensions: "[1, 3, \(height), \(width)]")
+    private func vaeEnSDXL(vaeMIL: URL, height: Int, width: Int) throws {
+        var fileContent = try String(contentsOf: vaeMIL, encoding: .utf8)
+        fileContent = fileContent.replacingOccurrences(of: "[1, 8, 128, 128]", with: "[1, 8, \(height / 8), \(width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 1, 16384, 512]", with: "[1, 1, \(height / 8 * width / 8), 512]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 1, 16384, 16384]", with: "[1, 1, \(height / 8 * width / 8), \(height / 8 * width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 16384, 1, 512]", with: "[1, \(height / 8 * width / 8), 1, 512]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 16384, 512]", with: "[1, \(height / 8 * width / 8), 512]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 16384]", with: "[1, 512, \(height / 8 * width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 16, 16384]", with: "[1, 32, 16, \(height / 8 * width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 16, 128, 128]", with: "[1, 32, 16, \(height / 8), \(width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 128, 128]", with: "[1, 512, \(height / 8), \(width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 257, 257]", with: "[1, 512, \(height / 4 + 1), \(width / 4 + 1)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 16, 256, 256]", with: "[1, 32, 16, \(height / 4), \(width / 4)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 256, 256]", with: "[1, 512, \(height / 4), \(width / 4)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 8, 256, 256]", with: "[1, 32, 8, \(height / 4), \(width / 4)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 256, 256, 256]", with: "[1, 256, \(height / 4), \(width / 4)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 256, 513, 513]", with: "[1, 256, \(height / 2 + 1), \(width / 2 + 1)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 8, 512, 512]", with: "[1, 32, 8, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 256, 512, 512]", with: "[1, 256, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 4, 512, 512]", with: "[1, 32, 4, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 128, 512, 512]", with: "[1, 128, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 128, 1025, 1025]", with: "[1, 128, \(height + 1), \(width + 1)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 128, 1024, 1024]", with: "[1, 128, \(height), \(width)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 4, 1024, 1024]", with: "[1, 32, 4, \(height), \(width)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 3, 1024, 1024]", with: "[1, 3, \(height), \(width)]")
+        try fileContent.write(to: vaeMIL, atomically: false, encoding: .utf8)
     }
 
-    private func vaeEnSDXL(vaeMIL: String, height: Int, width: Int) {
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 8, 128, 128]", newDimensions: "[1, 8, \(height / 8), \(width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 1, 16384, 512]", newDimensions: "[1, 1, \(height / 8 * width / 8), 512]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 1, 16384, 16384]", newDimensions: "[1, 1, \(height / 8 * width / 8), \(height / 8 * width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 16384, 1, 512]", newDimensions: "[1, \(height / 8 * width / 8), 1, 512]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 16384, 512]", newDimensions: "[1, \(height / 8 * width / 8), 512]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 16384]", newDimensions: "[1, 512, \(height / 8 * width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 16, 16384]", newDimensions: "[1, 32, 16, \(height / 8 * width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 16, 128, 128]", newDimensions: "[1, 32, 16, \(height / 8), \(width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 128, 128]", newDimensions: "[1, 512, \(height / 8), \(width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 257, 257]", newDimensions: "[1, 512, \(height / 4 + 1), \(width / 4 + 1)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 16, 256, 256]", newDimensions: "[1, 32, 16, \(height / 4), \(width / 4)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 256, 256]", newDimensions: "[1, 512, \(height / 4), \(width / 4)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 8, 256, 256]", newDimensions: "[1, 32, 8, \(height / 4), \(width / 4)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 256, 256, 256]", newDimensions: "[1, 256, \(height / 4), \(width / 4)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 256, 513, 513]", newDimensions: "[1, 256, \(height / 2 + 1), \(width / 2 + 1)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 8, 512, 512]", newDimensions: "[1, 32, 8, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 256, 512, 512]", newDimensions: "[1, 256, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 4, 512, 512]", newDimensions: "[1, 32, 4, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 128, 512, 512]", newDimensions: "[1, 128, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 128, 1025, 1025]", newDimensions: "[1, 128, \(height + 1), \(width + 1)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 128, 1024, 1024]", newDimensions: "[1, 128, \(height), \(width)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 4, 1024, 1024]", newDimensions: "[1, 32, 4, \(height), \(width)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 3, 1024, 1024]", newDimensions: "[1, 3, \(height), \(width)]")
+    private func vaeDeSD(vaeMIL: URL, height: Int, width: Int) throws {
+        var fileContent = try String(contentsOf: vaeMIL, encoding: .utf8)
+        fileContent = fileContent.replacingOccurrences(of: "[1, 4, 64, 64]", with: "[1, 4, \(height / 8), \(width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 64, 64]", with: "[1, 512, \(height / 8), \(width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 16, 64, 64]", with: "[1, 32, 16, \(height / 8), \(width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 16, 4096]", with: "[1, 32, 16, \(height / 8 * width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 4096]", with: "[1, 512, \(height / 8 * width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 4096, 512]", with: "[1, \(height / 8 * width / 8), 512]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 4096, 1, 512]", with: "[1, \(height / 8 * width / 8), 1, 512]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 1, 4096, 512]", with: "[1, 1, \(height / 8 * width / 8), 512]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 1, 4096, 4096]", with: "[1, 1, \(height / 8 * width / 8), \(height / 8 * width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 128, 128]", with: "[1, 512, \(height / 4), \(width / 4)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 16, 128, 128]", with: "[1, 32, 16, \(height / 4), \(width / 4)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 256, 256]", with: "[1, 512, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 16, 256, 256]", with: "[1, 32, 16, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 256, 256, 256]", with: "[1, 256, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 8, 256, 256]", with: "[1, 32, 8, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 256, 512, 512]", with: "[1, 256, \(height), \(width)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 8, 512, 512]", with: "[1, 32, 8, \(height), \(width)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 128, 512, 512]", with: "[1, 128, \(height), \(width)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 4, 512, 512]", with: "[1, 32, 4, \(height), \(width)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 3, 512, 512]", with: "[1, 3, \(height), \(width)]")
+        try fileContent.write(to: vaeMIL, atomically: false, encoding: .utf8)
     }
 
-    private func vaeDeSD(vaeMIL: String, height: Int, width: Int) {
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 4, 64, 64]", newDimensions: "[1, 4, \(height / 8), \(width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 64, 64]", newDimensions: "[1, 512, \(height / 8), \(width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 16, 64, 64]", newDimensions: "[1, 32, 16, \(height / 8), \(width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 16, 4096]", newDimensions: "[1, 32, 16, \(height / 8 * width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 4096]", newDimensions: "[1, 512, \(height / 8 * width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 4096, 512]", newDimensions: "[1, \(height / 8 * width / 8), 512]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 4096, 1, 512]", newDimensions: "[1, \(height / 8 * width / 8), 1, 512]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 1, 4096, 512]", newDimensions: "[1, 1, \(height / 8 * width / 8), 512]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 1, 4096, 4096]", newDimensions: "[1, 1, \(height / 8 * width / 8), \(height / 8 * width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 128, 128]", newDimensions: "[1, 512, \(height / 4), \(width / 4)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 16, 128, 128]", newDimensions: "[1, 32, 16, \(height / 4), \(width / 4)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 256, 256]", newDimensions: "[1, 512, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 16, 256, 256]", newDimensions: "[1, 32, 16, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 256, 256, 256]", newDimensions: "[1, 256, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 8, 256, 256]", newDimensions: "[1, 32, 8, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 256, 512, 512]", newDimensions: "[1, 256, \(height), \(width)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 8, 512, 512]", newDimensions: "[1, 32, 8, \(height), \(width)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 128, 512, 512]", newDimensions: "[1, 128, \(height), \(width)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 4, 512, 512]", newDimensions: "[1, 32, 4, \(height), \(width)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 3, 512, 512]", newDimensions: "[1, 3, \(height), \(width)]")
+    private func vaeEnSD(vaeMIL: URL, height: Int, width: Int) throws {
+        var fileContent = try String(contentsOf: vaeMIL, encoding: .utf8)
+        fileContent = fileContent.replacingOccurrences(of: "[1, 8, 64, 64]", with: "[1, 8, \(height / 8), \(width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 1, 4096, 512]", with: "[1, 1, \(height / 8 * width / 8), 512]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 1, 4096, 4096]", with: "[1, 1, \(height / 8 * width / 8), \(height / 8 * width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 4096, 1, 512]", with: "[1, \(height / 8 * width / 8), 1, 512]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 4096, 512]", with: "[1, \(height / 8 * width / 8), 512]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 4096]", with: "[1, 512, \(height / 8 * width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 16, 4096]", with: "[1, 32, 16, \(height / 8 * width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 16, 64, 64]", with: "[1, 32, 16, \(height / 8), \(width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 64, 64]", with: "[1, 512, \(height / 8), \(width / 8)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 129, 129]", with: "[1, 512, \(height / 4 + 1), \(width / 4 + 1)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 16, 128, 128]", with: "[1, 32, 16, \(height / 4), \(width / 4)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 512, 128, 128]", with: "[1, 512, \(height / 4), \(width / 4)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 8, 128, 128]", with: "[1, 32, 8, \(height / 4), \(width / 4)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 256, 128, 128]", with: "[1, 256, \(height / 4), \(width / 4)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 256, 257, 257]", with: "[1, 256, \(height / 2 + 1), \(width / 2 + 1)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 8, 256, 256]", with: "[1, 32, 8, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 256, 256, 256]", with: "[1, 256, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 4, 256, 256]", with: "[1, 32, 4, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 128, 256, 256]", with: "[1, 128, \(height / 2), \(width / 2)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 128, 513, 513]", with: "[1, 128, \(height + 1), \(width + 1)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 128, 512, 512]", with: "[1, 128, \(height), \(width)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 32, 4, 512, 512]", with: "[1, 32, 4, \(height), \(width)]")
+        fileContent = fileContent.replacingOccurrences(of: "[1, 3, 512, 512]", with: "[1, 3, \(height), \(width)]")
+        try fileContent.write(to: vaeMIL, atomically: false, encoding: .utf8)
     }
 
-    private func vaeEnSD(vaeMIL: String, height: Int, width: Int) {
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 8, 64, 64]", newDimensions: "[1, 8, \(height / 8), \(width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 1, 4096, 512]", newDimensions: "[1, 1, \(height / 8 * width / 8), 512]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 1, 4096, 4096]", newDimensions: "[1, 1, \(height / 8 * width / 8), \(height / 8 * width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 4096, 1, 512]", newDimensions: "[1, \(height / 8 * width / 8), 1, 512]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 4096, 512]", newDimensions: "[1, \(height / 8 * width / 8), 512]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 4096]", newDimensions: "[1, 512, \(height / 8 * width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 16, 4096]", newDimensions: "[1, 32, 16, \(height / 8 * width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 16, 64, 64]", newDimensions: "[1, 32, 16, \(height / 8), \(width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 64, 64]", newDimensions: "[1, 512, \(height / 8), \(width / 8)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 129, 129]", newDimensions: "[1, 512, \(height / 4 + 1), \(width / 4 + 1)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 16, 128, 128]", newDimensions: "[1, 32, 16, \(height / 4), \(width / 4)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 512, 128, 128]", newDimensions: "[1, 512, \(height / 4), \(width / 4)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 8, 128, 128]", newDimensions: "[1, 32, 8, \(height / 4), \(width / 4)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 256, 128, 128]", newDimensions: "[1, 256, \(height / 4), \(width / 4)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 256, 257, 257]", newDimensions: "[1, 256, \(height / 2 + 1), \(width / 2 + 1)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 8, 256, 256]", newDimensions: "[1, 32, 8, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 256, 256, 256]", newDimensions: "[1, 256, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 4, 256, 256]", newDimensions: "[1, 32, 4, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 128, 256, 256]", newDimensions: "[1, 128, \(height / 2), \(width / 2)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 128, 513, 513]", newDimensions: "[1, 128, \(height + 1), \(width + 1)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 128, 512, 512]", newDimensions: "[1, 128, \(height), \(width)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 32, 4, 512, 512]", newDimensions: "[1, 32, 4, \(height), \(width)]")
-            modifyMILFile(path: vaeMIL, oldDimensions: "[1, 3, 512, 512]", newDimensions: "[1, 3, \(height), \(width)]")
-    }
-
-
-    private func modifyInputSize(path: String, height: Int, width: Int) {
-        let url = URL(filePath: path)
-        let encoderMetadataURL = url.appendingPathComponent("VAEEncoder.mlmodelc").appendingPathComponent("metadata.json")
+    private func modifyMetadataInputSize(url: URL, height: Int, width: Int) {
+        let encoderMetadataURL = url.appending(components: "VAEEncoder.mlmodelc", "metadata.json")
         guard let jsonData = try? Data(contentsOf: encoderMetadataURL),
               var jsonArray = try? JSONSerialization.jsonObject(with: jsonData) as? [[String: Any]],
               var jsonItem = jsonArray.first,
