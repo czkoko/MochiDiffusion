@@ -159,7 +159,10 @@ struct GenerationConfig: Sendable, Identifiable {
         hasher.combine(computeUnit)
         hasher.combine(reduceMemory)
         let hash = hasher.finalize()
-        let cSize = await CGSize(width: ImageController.shared.width, height: ImageController.shared.height)
+        var cSize = await CGSize(width: ImageController.shared.width, height: ImageController.shared.height)
+        if model.allowsVariableSize == false{
+            cSize = model.inputSize!
+        }
         
         if hash == self.currentPipelineHash {
             if await ImageController.shared.startingImage != nil && lastSize == cSize {
@@ -168,21 +171,24 @@ struct GenerationConfig: Sendable, Identifiable {
                 return
             }
         }
-        
+
         lastSize = await CGSize(width: ImageController.shared.width, height: ImageController.shared.height)
         await updateState(.loading)
         let config = MLModelConfiguration()
         config.computeUnits = computeUnit
         let modelresource = try GuernikaKit.load(at: model.url)
-        
-        if FileManager.default.fileExists(atPath: model.url.path() + "WuerstchenPrior.mlmodelc"){
-            //pipeline = modelresource as? WuerstchenPipeline
-        }else if model.isXL {
+
+        switch modelresource {
+        case is StableDiffusionXLPipeline:
             self.pipeline = modelresource as! StableDiffusionXLPipeline
-        } else if modelresource.sampleSize.width <= CGFloat(768) {
+        case is StableDiffusionXLRefinerPipeline:
+            self.pipeline = modelresource as! StableDiffusionXLRefinerPipeline
+        case is StableDiffusionPix2PixPipeline:
+            self.pipeline = modelresource as! StableDiffusionPix2PixPipeline
+        default:
             self.pipeline = modelresource as! StableDiffusionMainPipeline
         }
-
+    
         self.pipeline?.reduceMemory = true//reduceMemory
         self.currentPipelineHash = hash
         self.tokenizer = Tokenizer(modelDir: model.url)

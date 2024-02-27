@@ -93,7 +93,13 @@ final class ImageController: ObservableObject {
             guard let model = currentModel else {
                 return
             }
+            if let height = currentModel?.inputSize?.height {
+                ImageController.shared.height = Int(height)
+            }
 
+            if let width = currentModel?.inputSize?.width {
+                ImageController.shared.width = Int(width)
+            }
             modelName = model.name
             controlNet = model.controlNet
             currentControlNets = []
@@ -254,14 +260,24 @@ final class ImageController: ObservableObject {
     }
 
     func generate() async {
-        guard let model = currentModel else {
+        guard let currentModel else {
             return
         }
 
         var pipelineConfig = SampleInput(prompt: prompt)
         pipelineConfig.negativePrompt = negativePrompt
+
+        let model: SDModel
+        if currentModel.allowsVariableSize {
+            guard let unwrappedModel = await currentModel.resized(width: width, height: height) else { return }
+            model = unwrappedModel
+            pipelineConfig.size = CGSize(width: ImageController.shared.width, height: ImageController.shared.height)
+        } else {
+            model = currentModel
+            pipelineConfig.size = model.inputSize
+        }
         pipelineConfig.size = CGSize(width: ImageController.shared.width, height: ImageController.shared.height)
-        
+
         if let size = pipelineConfig.size, startingImage != nil{
            pipelineConfig.initImage = startingImage?.scaledAndCroppedTo(size: size)
             pipelineConfig.inpaintMask = maskImage?.scaledAndCroppedTo(size: size)
@@ -325,11 +341,8 @@ final class ImageController: ObservableObject {
             let genConfig = generationQueue.removeFirst()
             self.currentGeneration = genConfig
             do {
-                guard let model = try await genConfig.model.resized(width: width, height: height) else {
-                    continue
-                }
                 try await ImageGenerator.shared.loadPipeline(
-                    model: model,
+                    model: genConfig.model,
                     controlNet: genConfig.controlNets,
                     computeUnit: genConfig.mlComputeUnit,
                     reduceMemory: self.reduceMemory
